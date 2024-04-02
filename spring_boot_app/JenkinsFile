@@ -2,7 +2,7 @@ pipeline {
   agent {
     docker {
       image 'abhishekf5/maven-abhishek-docker-agent:v1'
-      args '--user root -v /var/run/docker.sock:/var/run/docker.sock' // mount Docker socket to access the host's Docker daemon
+      args '--user root -v /var/run/docker.sock:/var/run/docker.sock' // The Docker container is configured to have root access (--user root) and mount the Docker socket from the host machine (-v /var/run/docker.sock:/var/run/docker.sock). This setup allows the Jenkins job to perform Docker-related operations, such as building Docker images or running containers.
     }
   }
   //Checkout the source code from Git.
@@ -10,7 +10,7 @@ pipeline {
     stage('Checkout') {
       steps {
         sh 'echo passed'
-        //git branch: 'main', url: 'https://github.com/iam-veeramalla/Jenkins-Zero-To-Hero.git'
+        //git([url: 'https://github.com/saurabhkav03/java-maven-sonar-argocd-helm-k8s.git', branch: 'main'])
       }
     }
     //Build the Java application using Maven.
@@ -18,7 +18,7 @@ pipeline {
       steps {
         sh 'ls -ltr'
         // build the project and create a JAR file
-        sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn clean package'
+        sh ' cd java-maven-sonar-argocd-helm-k8s/spring_boot_app && mvn clean package '
       }
     }
     //Run SonarQube analysis to check the code quality.
@@ -28,21 +28,21 @@ pipeline {
       }
       steps {
         withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
-          sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}'
+          sh 'cd java-maven-sonar-argocd-helm-k8s/spring_boot_app && mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}'
         }
       }
     }
     stage('Build and Push Docker Image') {
       environment {
-        //his variable defines the name of the Docker image that will be built. It uses the format abhishekf5/ultimate-cicd:${BUILD_NUMBER}, where ${BUILD_NUMBER} is a Jenkins environment variable representing the current build number. This ensures that each build results in a unique image tag.
-        DOCKER_IMAGE = "abhishekf5/ultimate-cicd:${BUILD_NUMBER}"
+        // This variable defines the name of the Docker image that will be built. It uses the format abhishekf5/ultimate-cicd:${BUILD_NUMBER}, where ${BUILD_NUMBER} is a Jenkins environment variable representing the current build number. This ensures that each build results in a unique image tag.
+        DOCKER_IMAGE = "kaveri03/springboot-app:${env.BUILD_ID}"
         // DOCKERFILE_LOCATION = "java-maven-sonar-argocd-helm-k8s/spring-boot-app/Dockerfile"
         // These credentials are fetched from the Jenkins credentials store using the ID docker-cred.
         REGISTRY_CREDENTIALS = credentials('docker-cred')
       }
       steps {
         script {
-            sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
+            sh 'cd java-maven-sonar-argocd-helm-k8s/spring_boot_app && docker build -t ${DOCKER_IMAGE} .'
             //This line creates a Docker image object representing the image that was just built.
             def dockerImage = docker.image("${DOCKER_IMAGE}")
            //This block configures Docker to use the specified Docker registry (https://index.docker.io/v1/) and authenticates using the credentials stored in REGISTRY_CREDENTIALS.
@@ -55,9 +55,9 @@ pipeline {
     stage('Update Deployment File') {
         environment {
             //This variable stores the name of the GitHub repository where the deployment file is located.
-            GIT_REPO_NAME = "Jenkins-Zero-To-Hero"
+            GIT_REPO_NAME = "java-maven-sonar-argocd-helm-k8s"
             //This variable stores the GitHub username of the user who will be committing the changes.
-            GIT_USER_NAME = "iam-veeramalla"
+            GIT_USER_NAME = "saurabhkav03"
         }
         steps {
             //This block is used to securely access the GitHub repository using credentials stored in Jenkins.
@@ -65,11 +65,11 @@ pipeline {
             withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
                 sh '''
                 
-                    git config user.email "abhishek.xyz@gmail.com"
-                    git config user.name "Abhishek Veeramalla"
+                    git config user.email "kaverisaurabh1998@gmail.com"
+                    git config user.name "Saurabh Kaveri"
                     BUILD_NUMBER=${BUILD_NUMBER}
-                    sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-                    git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
+                    sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring_boot_app/deployment.yml
+                    git add java-maven-sonar-argocd-helm-k8s/spring_boot_app/deployment.yml
                     git commit -m "Update deployment image to version ${BUILD_NUMBER}"
                     git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
                 '''
