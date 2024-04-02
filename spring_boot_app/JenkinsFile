@@ -1,0 +1,89 @@
+pipeline {
+  agent {
+    docker {
+      image 'abhishekf5/maven-abhishek-docker-agent:v1'
+      args '--user root -v /var/run/docker.sock:/var/run/docker.sock' // mount Docker socket to access the host's Docker daemon
+    }
+  }
+  //Checkout the source code from Git.
+  stages {
+    stage('Checkout') {
+      steps {
+        sh 'echo passed'
+        //git branch: 'main', url: 'https://github.com/iam-veeramalla/Jenkins-Zero-To-Hero.git'
+      }
+    }
+    //Build the Java application using Maven.
+    stage('Build and Test') {
+      steps {
+        sh 'ls -ltr'
+        // build the project and create a JAR file
+        sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn clean package'
+      }
+    }
+    //Run SonarQube analysis to check the code quality.
+    stage('Static Code Analysis') {
+      environment {
+        SONAR_URL = "http://34.201.116.83:9000"
+      }
+      steps {
+        withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
+          sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}'
+        }
+      }
+    }
+    stage('Build and Push Docker Image') {
+      environment {
+        //his variable defines the name of the Docker image that will be built. It uses the format abhishekf5/ultimate-cicd:${BUILD_NUMBER}, where ${BUILD_NUMBER} is a Jenkins environment variable representing the current build number. This ensures that each build results in a unique image tag.
+        DOCKER_IMAGE = "abhishekf5/ultimate-cicd:${BUILD_NUMBER}"
+        // DOCKERFILE_LOCATION = "java-maven-sonar-argocd-helm-k8s/spring-boot-app/Dockerfile"
+        // These credentials are fetched from the Jenkins credentials store using the ID docker-cred.
+        REGISTRY_CREDENTIALS = credentials('docker-cred')
+      }
+      steps {
+        script {
+            sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
+            //This line creates a Docker image object representing the image that was just built.
+            def dockerImage = docker.image("${DOCKER_IMAGE}")
+           //This block configures Docker to use the specified Docker registry (https://index.docker.io/v1/) and authenticates using the credentials stored in REGISTRY_CREDENTIALS.
+            docker.withRegistry('https://index.docker.io/v1/', "docker-cred") {
+                dockerImage.push()
+            }
+        }
+      }
+    }
+    stage('Update Deployment File') {
+        environment {
+            //This variable stores the name of the GitHub repository where the deployment file is located.
+            GIT_REPO_NAME = "Jenkins-Zero-To-Hero"
+            //This variable stores the GitHub username of the user who will be committing the changes.
+            GIT_USER_NAME = "iam-veeramalla"
+        }
+        steps {
+            //This block is used to securely access the GitHub repository using credentials stored in Jenkins.
+            //This line retrieves the GitHub token from Jenkins credentials with the ID "github" and assigns it to the environment variable GITHUB_TOKEN.
+            withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                sh '''
+                
+                    git config user.email "abhishek.xyz@gmail.com"
+                    git config user.name "Abhishek Veeramalla"
+                    BUILD_NUMBER=${BUILD_NUMBER}
+                    sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
+                    git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
+                    git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+                    git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+                '''
+            /*Shell Script Block:
+Inside the shell script block (sh ''' ... '''), several commands are executed:
+git config user.email "abhishek.xyz@gmail.com" and git config user.name "Abhishek Veeramalla": These commands configure the Git user email and name to be used for the commit.
+BUILD_NUMBER=${BUILD_NUMBER}: This line assigns the Jenkins environment variable BUILD_NUMBER to a local variable named BUILD_NUMBER.
+sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml: This command uses sed (stream editor) to replace a placeholder (replaceImageTag) in the deployment YAML file with the actual Docker image tag/version (${BUILD_NUMBER}).
+git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml: This command adds the modified deployment YAML file to the Git staging area.
+git commit -m "Update deployment image to version ${BUILD_NUMBER}": This command creates a new Git commit with a commit message indicating the updated Docker image version.
+git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main: This command pushes the changes to the GitHub repository.
+*/
+            }
+        }
+    }
+  }
+}
